@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>영화관 키오스크 연습</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap');
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f3f4f6; }
+        .step-active { background-color: #3b82f6; color: white; }
+        .step-inactive { background-color: #e5e7eb; color: #9ca3af; }
+        
+        /* 티켓 출력용 스타일 - 가로로 긴 직사각형 디자인 */
+        @media print {
+            body * { visibility: hidden; }
+            #ticket-section, #ticket-section * { visibility: visible; }
+            #ticket-section { 
+                position: absolute; 
+                left: 0; 
+                top: 50px; 
+                width: 650px; /* 가로로 긴 너비 */
+                height: 250px; /* 세로 높이 고정 */
+                box-shadow: none !important;
+                border: 1px solid #ccc;
+                display: flex !important;
+                flex-direction: row !important;
+                margin: 0;
+            }
+            .no-print { display: none !important; }
+            @page { size: landscape; margin: 1cm; }
+        }
+
+        .movie-card:hover { transform: scale(1.02); }
+        .movie-image-container { height: 200px; width: 100%; background-color: #e5e7eb; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .movie-image { width: 100%; height: 100%; object-fit: cover; }
+
+        /* 가로형 티켓 디자인 (화면 표시용) */
+        .ticket-shape {
+            background: white;
+            position: relative;
+            filter: drop-shadow(0 10px 20px rgba(0,0,0,0.1));
+            width: 100%;
+            max-width: 600px; 
+            height: 240px;
+            border-radius: 12px;
+            display: flex;
+            overflow: hidden;
+        }
+        
+        .ticket-left-visual {
+            width: 180px;
+            height: 100%;
+            background-color: #333;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .ticket-right-info {
+            flex-grow: 1;
+            padding: 20px;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .ticket-cutout-v {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #f3f4f6; 
+            border-radius: 50%;
+            left: 165px; /* 이미지와 정보 사이의 절취 위치 */
+        }
+        .cut-top { top: -15px; }
+        .cut-bottom { bottom: -15px; }
+        
+        .ticket-v-dash {
+            position: absolute;
+            left: 180px;
+            top: 20px;
+            bottom: 20px;
+            border-left: 2px dashed #eee;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex justify-center">
+
+    <div id="app" class="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden min-h-[750px] flex flex-col">
+        
+        <!-- Header -->
+        <div class="w-full bg-gray-800 p-4 text-white text-center">
+            <h1 class="text-2xl font-bold mb-2">🎬 영화관 연습 키오스크</h1>
+            <div class="flex justify-between px-4 mt-4">
+                <div id="step-dot-1" class="w-8 h-8 rounded-full flex items-center justify-center font-bold step-active">1</div>
+                <div id="step-dot-2" class="w-8 h-8 rounded-full flex items-center justify-center font-bold step-inactive">2</div>
+                <div id="step-dot-3" class="w-8 h-8 rounded-full flex items-center justify-center font-bold step-inactive">3</div>
+                <div id="step-dot-4" class="w-8 h-8 rounded-full flex items-center justify-center font-bold step-inactive">4</div>
+                <div id="step-dot-5" class="w-8 h-8 rounded-full flex items-center justify-center font-bold step-inactive">5</div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="content" class="p-6 flex-grow flex flex-col justify-center items-center text-center">
+            <!-- 단계별 내용 동적 삽입 -->
+        </div>
+
+        <!-- Footer -->
+        <div id="footer" class="p-6 border-t border-gray-100 flex justify-between bg-gray-50">
+            <button id="prevBtn" onclick="prevStep()" class="px-8 py-3 bg-gray-400 text-white rounded-xl font-bold text-lg opacity-0 pointer-events-none">이전으로</button>
+            <button id="nextBtn" onclick="nextStep()" class="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold text-lg hidden">다음으로</button>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        const selection = {
+            movie: '',
+            movieImg: '',
+            time: '',
+            count: 1,
+            seats: []
+        };
+
+        const movieData = [
+            { name: "뽀로로 테마극장 언제나 크리스마스", img: "1.jpg" },
+            { name: "브레드 이발소 크리스마스 특집", img: "2.jpg" },
+            { name: "주니토니 크리스마스 동화", img: "3.jpg" },
+            { name: "뽀로로 크리스마스 동요", img: "4.jpg" }
+        ];
+
+        const times = ["10:00", "10:30", "12:30", "13:00"];
+        const seats = ["가1", "가2", "가3", "나1", "나2", "나3"];
+
+        function renderStep() {
+            const content = document.getElementById('content');
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            
+            for(let i=1; i<=5; i++) {
+                const dot = document.getElementById(`step-dot-${i}`);
+                dot.className = `w-8 h-8 rounded-full flex items-center justify-center font-bold ${i <= currentStep ? 'step-active' : 'step-inactive'}`;
+            }
+
+            if (currentStep > 1 && currentStep < 5) {
+                prevBtn.classList.remove('opacity-0', 'pointer-events-none');
+            } else {
+                prevBtn.classList.add('opacity-0', 'pointer-events-none');
+            }
+
+            content.innerHTML = '';
+
+            switch(currentStep) {
+                case 1:
+                    content.innerHTML = `
+                        <h2 class="text-2xl font-bold mb-6">보고 싶은 영화 포스터를 눌러주세요</h2>
+                        <div class="grid grid-cols-2 gap-4 w-full max-h-[550px] overflow-y-auto p-2">
+                            ${movieData.map((movie, i) => `
+                                <button onclick="selectMovie('${movie.name}', '${movie.img}')" class="movie-card flex flex-col items-center border-4 ${selection.movie === movie.name ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} rounded-3xl overflow-hidden shadow-md transition-all bg-white text-left">
+                                    <div class="movie-image-container">
+                                        <img src="${movie.img}" alt="${movie.name}" class="movie-image" onerror="this.parentElement.innerHTML='<div class=\'p-4 text-gray-400 font-bold text-center\'>${i+1}번 사진을<br>넣어주세요</div>'">
+                                    </div>
+                                    <div class="p-3 w-full bg-white">
+                                        <span class="inline-block px-2 py-0.5 bg-blue-100 rounded-full text-[10px] font-bold text-blue-600 mb-1">${i+1}번 영화</span>
+                                        <div class="text-sm font-black leading-tight text-gray-800 line-clamp-2">
+                                            ${movie.name}
+                                        </div>
+                                    </div>
+                                </button>
+                            `).join('')}
+                        </div>
+                    `;
+                    break;
+
+                case 2:
+                    content.innerHTML = `
+                        <h2 class="text-2xl font-bold mb-6">관람하실 시간을 선택해 주세요</h2>
+                        <div class="grid grid-cols-2 gap-4 w-full">
+                            ${times.map(t => `
+                                <button onclick="selectTime('${t}')" class="p-8 border-4 ${selection.time === t ? 'border-blue-500 bg-blue-50' : 'border-gray-200'} rounded-2xl text-2xl font-bold hover:bg-blue-50 shadow-md">
+                                    ${t}
+                                </button>
+                            `).join('')}
+                        </div>
+                    `;
+                    break;
+
+                case 3:
+                    content.innerHTML = `
+                        <h2 class="text-2xl font-bold mb-6">관람하실 인원을 선택해 주세요</h2>
+                        <div class="flex items-center space-x-8 bg-gray-50 p-10 rounded-3xl shadow-inner border-2 border-gray-100">
+                            <button onclick="changeCount(-1)" class="w-20 h-20 bg-red-500 text-white rounded-full text-4xl font-bold shadow-lg active:scale-90 transition-transform">-</button>
+                            <div class="text-center">
+                                <span class="text-6xl font-black text-gray-800">${selection.count}</span>
+                                <p class="text-lg text-gray-500 mt-1">명</p>
+                            </div>
+                            <button onclick="changeCount(1)" class="w-20 h-20 bg-blue-500 text-white rounded-full text-4xl font-bold shadow-lg active:scale-90 transition-transform">+</button>
+                        </div>
+                        <button onclick="nextStep()" class="mt-10 px-16 py-5 bg-blue-600 text-white rounded-2xl text-2xl font-bold shadow-xl active:bg-blue-700">인원 확정</button>
+                    `;
+                    break;
+
+                case 4:
+                    content.innerHTML = `
+                        <h2 class="text-2xl font-bold mb-2">원하시는 좌석을 선택해 주세요</h2>
+                        <p class="mb-6 text-blue-600 font-bold text-xl">${selection.count}개의 자리를 골라주세요.</p>
+                        <div class="bg-gray-800 text-white w-full py-2 mb-10 rounded-lg font-bold tracking-[10px]">SCREEN</div>
+                        <div class="grid grid-cols-3 gap-6 w-full px-4">
+                            ${seats.map(s => {
+                                const isSelected = selection.seats.includes(s);
+                                return `
+                                    <button onclick="toggleSeat('${s}')" class="p-6 border-4 ${isSelected ? 'border-blue-600 bg-blue-600 text-white shadow-inner scale-105' : 'border-gray-300 bg-white shadow-sm'} rounded-2xl text-2xl font-black transition-all">
+                                        ${s}
+                                    </button>
+                                `;
+                            }).join('')}
+                        </div>
+                        <button id="seatConfirmBtn" onclick="confirmSeats()" class="mt-12 px-14 py-5 ${selection.seats.length === selection.count ? 'bg-green-600 shadow-xl' : 'bg-gray-400 pointer-events-none'} text-white rounded-2xl text-2xl font-bold transition-colors">
+                            선택 완료
+                        </button>
+                    `;
+                    break;
+
+                case 5:
+                    content.innerHTML = `
+                        <div id="ticket-section" class="ticket-shape">
+                            <!-- 왼쪽: 영화 이미지 영역 -->
+                            <div class="ticket-left-visual">
+                                <img src="${selection.movieImg}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<div class=\'h-full flex items-center justify-center text-gray-500 text-xs text-center p-2\'>이미지<br>없음</div>'">
+                            </div>
+
+                            <!-- 절취선 효과 -->
+                            <div class="ticket-cutout-v cut-top"></div>
+                            <div class="ticket-v-dash"></div>
+                            <div class="ticket-cutout-v cut-bottom"></div>
+
+                            <!-- 오른쪽: 상세 정보 영역 -->
+                            <div class="ticket-right-info">
+                                <div>
+                                    <div class="flex justify-between items-start mb-2">
+                                        <h2 class="text-xl font-black text-gray-900 leading-tight">${selection.movie}</h2>
+                                        <span class="text-[10px] bg-blue-600 text-white px-2 py-1 rounded font-bold shrink-0 ml-2">ADMISSION</span>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-x-4 gap-y-2 mt-4">
+                                        <div>
+                                            <p class="text-[9px] text-gray-400 font-black uppercase">Date/Time</p>
+                                            <p class="text-lg font-black text-gray-800">${new Date().toLocaleDateString()} / ${selection.time}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-[9px] text-gray-400 font-black uppercase">Seat</p>
+                                            <p class="text-lg font-black text-blue-600">${selection.seats.join(', ')}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-[9px] text-gray-400 font-black uppercase">Guest</p>
+                                            <p class="text-sm font-bold text-gray-700">${selection.count}명</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-[9px] text-gray-400 font-black uppercase">Theater</p>
+                                            <p class="text-sm font-bold text-gray-700">서울서진학교</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 하단 바코드 및 로고 -->
+                                <div class="flex items-end justify-between border-t border-gray-100 pt-3">
+                                    <div class="w-1/2">
+                                        <div class="h-8 w-full bg-black mb-1" style="background: repeating-linear-gradient(90deg, #222, #222 1px, #fff 1px, #fff 3px);"></div>
+                                        <p class="text-[7px] font-mono text-gray-400">#${Math.random().toString(36).substr(2, 8).toUpperCase()}</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-[10px] font-black italic text-gray-300 uppercase tracking-tighter">Cinema Practice</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-8 flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 w-full no-print px-4">
+                            <button onclick="window.print()" class="flex-1 py-4 bg-blue-600 text-white rounded-2xl text-lg font-black shadow-lg flex items-center justify-center hover:bg-blue-700 active:scale-95 transition-all">
+                                🖨️ 가로형 티켓 인쇄
+                            </button>
+                            <button onclick="resetApp()" class="flex-1 py-4 bg-gray-200 text-gray-700 rounded-2xl text-lg font-black hover:bg-gray-300 active:scale-95 transition-all">
+                                처음으로
+                            </button>
+                        </div>
+                    `;
+                    break;
+            }
+        }
+
+        function selectMovie(movie, img) {
+            selection.movie = movie;
+            selection.movieImg = img;
+            nextStep();
+        }
+
+        function selectTime(time) {
+            selection.time = time;
+            nextStep();
+        }
+
+        function changeCount(val) {
+            const newCount = selection.count + val;
+            if (newCount >= 1 && newCount <= 3) {
+                selection.count = newCount;
+                renderStep();
+            }
+        }
+
+        function toggleSeat(seat) {
+            const index = selection.seats.indexOf(seat);
+            if (index > -1) {
+                selection.seats.splice(index, 1);
+            } else {
+                if (selection.seats.length < selection.count) {
+                    selection.seats.push(seat);
+                } else {
+                    selection.seats.shift();
+                    selection.seats.push(seat);
+                }
+            }
+            renderStep();
+        }
+
+        function confirmSeats() {
+            if (selection.seats.length === selection.count) {
+                nextStep();
+            }
+        }
+
+        function nextStep() {
+            if (currentStep < 5) {
+                currentStep++;
+                renderStep();
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 1) {
+                currentStep--;
+                renderStep();
+            }
+        }
+
+        function resetApp() {
+            currentStep = 1;
+            selection.movie = '';
+            selection.movieImg = '';
+            selection.time = '';
+            selection.count = 1;
+            selection.seats = [];
+            renderStep();
+        }
+
+        window.onload = renderStep;
+    </script>
+</body>
+</html>
